@@ -1,3 +1,14 @@
+"""
+  - Role: Represents insurance customers
+
+  - Contents: Stores customer information including personal details (name, phone),
+  vehicle data (make, model, registration), and insurance specifics
+  (policy number, due dates, premium amounts). Provides serialization
+  and deserialization capabilities for database operations.
+
+  - Importance: High - core data structure for the business domain
+"""
+
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional

@@ -1,3 +1,14 @@
+"""
+  - Role: Database connection management
+  - Key Functions:
+    - execute_query(): Runs SQL commands
+    - create_table(): Establishes database schema
+
+Handles connection pooling, query execution, transaction management,
+and error handling for database operations. Provides methods for
+executing queries, fetching results, and managing database schema.
+"""
+
 import mysql.connector
 from typing import Dict, Any, List, Optional
 import logging

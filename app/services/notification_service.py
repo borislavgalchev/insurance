@@ -1,13 +1,25 @@
+"""
+  - Role: SMS notification delivery service
+  - Key Functions:
+    - send_sms(): Delivers messages via Twilio
+    - check_upcoming_insurance(): Processes and notifies users
+
+Manages the creation and delivery of payment reminder messages to customers,
+handles notification scheduling based on due dates, and supports test mode
+for verification without sending actual messages. Includes detailed logging
+of notification attempts and delivery status.
+"""
+
+import logging
+from datetime import date, timedelta
+from typing import Optional, List
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
-from datetime import datetime, date, timedelta
-import logging
-from typing import List, Optional
-from app.models.user import User
-from app.repositories.user_repository import UserRepository
-from app.utils.date_helpers import format_date
 from app.utils.exceptions import NotificationError
-from config.settings import TWILIO_CONFIG, TEST_PHONE, DATE_FORMAT
+from app.repositories.user_repository import UserRepository
+from app.models.user import User
+from app.utils.date_helpers import format_date
+from config.settings import TWILIO_CONFIG, TEST_PHONE
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -15,66 +27,82 @@ logger = logging.getLogger(__name__)
 
 class NotificationService:
     """
-    Service for sending notifications to users
+    Service for sending SMS notifications to users
     """
     def __init__(self, user_repository: UserRepository, test_mode: bool = True):
         """
         Initialize with user repository and test mode
         
         Args:
-            user_repository: User repository instance
-            test_mode: Whether to run in test mode (send to test phone)
+            user_repository: Repository for user data access
+            test_mode: If True, send all SMS to the test phone number
         """
         self.user_repository = user_repository
         self.test_mode = test_mode
-        self.today = datetime.now().date()
-        self.sms_enabled = True
+        self.today = date.today()
         
-        # Validate Twilio configuration
-        if not TWILIO_CONFIG.get('account_sid') or not TWILIO_CONFIG.get('auth_token'):
-            logger.warning("Twilio credentials not found in environment variables. SMS functionality will be disabled.")
-            self.sms_enabled = False
-            return
+        # Initialize Twilio client if auth token is provided
+        if TWILIO_CONFIG.get('auth_token'):
+            self.client = Client(TWILIO_CONFIG['account_sid'], TWILIO_CONFIG['auth_token'])
+        else:
+            self.client = None
+            logger.warning("Twilio client not initialized: auth_token not provided")
             
-        if not TWILIO_CONFIG.get('phone_number'):
-            logger.warning("Twilio phone number not found in environment variables. SMS functionality will be disabled.")
-            self.sms_enabled = False
-            return
-            
-        if self.test_mode and not TEST_PHONE:
-            logger.warning("Test phone number not found in environment variables.")
+        # Log mode
+        logger.info(f"Notification service initialized in {'TEST' if test_mode else 'PRODUCTION'} mode")
+        if test_mode:
+            logger.info(f"Test phone number: {TEST_PHONE}")
+    
+    def normalize_phone(self, phone: str) -> str:
+        """
+        Normalize phone number format for Twilio
         
-        # Set up Twilio client
-        try:
-            self.client = Client(
-                TWILIO_CONFIG['account_sid'],
-                TWILIO_CONFIG['auth_token']
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize Twilio client: {e}")
-            self.sms_enabled = False
-            logger.warning("SMS functionality will be disabled.")
+        Args:
+            phone: Phone number to normalize
+            
+        Returns:
+            str: Normalized phone number
+        """
+        if not phone:
+            return ""
+            
+        # Remove spaces, dashes, and parentheses
+        cleaned = ''.join(c for c in phone if c.isdigit() or c == '+')
+        
+        # Ensure it starts with a plus sign and country code
+        if not cleaned.startswith('+'):
+            # Assume Bulgarian number if no country code
+            if cleaned.startswith('0'):
+                cleaned = '+359' + cleaned[1:]
+            else:
+                cleaned = '+' + cleaned
+                
+        return cleaned
     
     def send_sms(self, to_number: str, message_body: str) -> Optional[str]:
         """
-        Send SMS using Twilio
+        Send an SMS message
         
         Args:
-            to_number: Phone number to send SMS to
+            to_number: Recipient phone number
             message_body: Message content
             
         Returns:
-            str: Message SID if successful, None otherwise
+            Optional[str]: Message SID if sent successfully, None otherwise
             
         Raises:
-            NotificationError: If sending fails
+            NotificationError: If SMS sending fails
         """
-        # Skip sending if SMS is disabled
-        if not self.sms_enabled:
-            logger.warning("SMS functionality is disabled. Message not sent.")
+        if not self.client:
+            logger.warning("Twilio client not initialized. SMS not sent.")
+            if self.test_mode:
+                logger.info(f"TEST MODE: Would send to {to_number}: {message_body}")
+                return "test_message_id"
             return None
             
-        # Skip sending if the phone number is invalid
+        # Normalize phone number
+        to_number = self.normalize_phone(to_number)
+        
         if not to_number or to_number == '*' or len(to_number) < 10:
             logger.warning(f"Invalid phone number: {to_number}. SMS not sent.")
             return None
@@ -117,12 +145,30 @@ class NotificationService:
                 self.today, future_date, self.today
             )
             
+            # Deduplicate users based on name and due date
+            def deduplicate_users(users):
+                seen = set()
+                unique_users = []
+                
+                for user in users:
+                    # Create a unique key based on name and due date
+                    key = (user.full_name, str(user.due_day))
+                    
+                    if key not in seen:
+                        seen.add(key)
+                        unique_users.append(user)
+                        
+                return unique_users
+            
+            # Deduplicate the user list
+            unique_users = deduplicate_users(upcoming_users)
+            
             sms_sent_count = 0
             
-            if upcoming_users:
-                logger.info(f"Found {len(upcoming_users)} users with upcoming insurance dates")
+            if unique_users:
+                logger.info(f"Found {len(unique_users)} unique users with upcoming insurance dates (from {len(upcoming_users)} total records)")
                 
-                for user in upcoming_users:
+                for user in unique_users:
                     days_until_due = (user.due_day - self.today).days if user.due_day else 0
                     
                     # Determine if we should send an SMS based on due date or notice date

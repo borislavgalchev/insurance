@@ -1,5 +1,12 @@
 """
-Base model with common functionality for all models
+    - Role: Foundation for all data models
+    - Key Functions:
+    - from_dict(): Converts dictionaries to model instances
+    - to_dict(): Serializes models to dictionaries
+
+Implements type-aware conversion between dictionaries and model objects,
+supporting serialization for database storage and deserialization from
+database records. Handles type conversion and data validation.
 """
 from typing import TypeVar, Dict, Any, Type, cast, Optional, get_type_hints
 from datetime import date
@@ -26,7 +33,13 @@ class BaseModel:
         if data is None:
             return None
             
-        # Get type hints for this class
+        # Use centralized validation based on model type
+        if cls.__name__ == 'User':
+            from app.utils.validators import validate_user_model
+            validated_data = validate_user_model(data)
+            return cls(**validated_data)
+        
+        # Get type hints for this class (for non-User models)
         hints = get_type_hints(cls)
         
         # Create a cleaned data dictionary
@@ -51,9 +64,9 @@ class BaseModel:
                 elif isinstance(value, date):
                     cleaned_data[field_name] = value
                 else:
-                    # Date conversion should be handled by parse_date in app.utils.date_helpers
-                    # We won't import it here to avoid circular import issues
-                    cleaned_data[field_name] = value
+                    # Use convert_date from validators
+                    from app.utils.validators import convert_date
+                    cleaned_data[field_name] = convert_date(value)
                 continue
                 
             # Handle numeric type conversions

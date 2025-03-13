@@ -1,5 +1,18 @@
+"""
+    - Role: Data access for user records
+
+    - Key Functions:
+    - create_table(): Sets up database schema
+    - get_users_by_date_range(): Finds users with due dates in a period
+    - get_upcoming_insurance_users(): Identifies users needing notifications
+
+Provides specialized operations for retrieving users based on insurance criteria,
+including due date ranges, notice periods, and overdue status. Implements
+table creation and standard CRUD operations for User records.
+"""
+
 from typing import List, Optional
-from datetime import date
+from datetime import date, timedelta
 import logging
 from app.models.user import User
 from app.services.database import DatabaseService
@@ -106,3 +119,42 @@ class UserRepository(BaseRepository[User]):
         ORDER BY due_day ASC
         """
         return self.get_by_query(query, (start_date, end_date, notice_date))
+        
+    @log_operation("Get users with due dates soon")
+    def get_due_soon(self, days: int = 5) -> List[User]:
+        """
+        Get users with insurance due soon
+        
+        Args:
+            days: Number of days ahead to check
+            
+        Returns:
+            List[User]: List of users with insurance due soon
+        """
+        today = date.today()
+        end_date = today + timedelta(days=days)
+        
+        query = """
+        SELECT * FROM users
+        WHERE (notice IS NOT NULL AND notice BETWEEN %s AND %s)
+        OR (due_day IS NOT NULL AND due_day BETWEEN %s AND %s)
+        ORDER BY due_day ASC
+        """
+        return self.get_by_query(query, (today, end_date, today, end_date))
+        
+    @log_operation("Get users with overdue insurance")
+    def get_overdue(self) -> List[User]:
+        """
+        Get users with overdue insurance
+        
+        Returns:
+            List[User]: List of users with overdue insurance
+        """
+        today = date.today()
+        
+        query = """
+        SELECT * FROM users
+        WHERE due_day IS NOT NULL AND due_day < %s
+        ORDER BY due_day ASC
+        """
+        return self.get_by_query(query, (today,))

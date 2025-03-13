@@ -1,5 +1,12 @@
 """
-Decorators for common functionality across the application
+
+  - Role: Decorators for common functionality across the application
+  - Key Functions: Database operation wrapping, logging
+
+Provides decorators for adding consistent logging, error handling,
+and database transaction management across multiple components.
+Simplifies code by centralizing common patterns like database
+error handling and operation logging.
 """
 import functools
 import logging

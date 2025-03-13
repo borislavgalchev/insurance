@@ -1,5 +1,6 @@
 """
-Custom exceptions for the Insurance Management System
+  - Role: Custom exception types
+  - Contents: DatabaseError, NotificationError, ValidationError
 """
 
 class DatabaseError(Exception):

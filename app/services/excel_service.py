@@ -1,3 +1,14 @@
+"""
+  - Role: Imports user data from Excel files
+  - Key Functions:
+    - _rename_columns(): Translates column names from Bulgarian
+    - get_users(): Extracts and converts user data
+
+Processes Excel files containing customer records, translates column names
+from Bulgarian to English, validates incoming data, and converts raw data
+into User model instances. Handles date parsing and data type conversion.
+"""
+
 import pandas as pd
 import logging
 from typing import List, Dict, Any

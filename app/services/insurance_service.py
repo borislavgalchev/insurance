@@ -1,7 +1,19 @@
-from typing import List, Dict, Any
+"""
+  - Role: Core business logic
+  - Key Functions:
+    - get_due_soon(): Finds users with upcoming payments
+    - get_overdue(): Identifies users with missed payments
+
+Implements algorithms for identifying users with upcoming due dates,
+overdue payments, and notice date requirements. Provides sorting and
+filtering capabilities based on insurance-specific criteria.
+"""
+
+from typing import List, Dict, Any, Optional
 from datetime import datetime, date, timedelta
 import logging
 from app.models.user import User
+from app.repositories.user_repository import UserRepository
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -11,19 +23,21 @@ class InsuranceService:
     """
     Service for insurance-related business logic
     """
-    def __init__(self, users: List[User] = None):
+    def __init__(self, user_repository: UserRepository, users: Optional[List[User]] = None):
         """
-        Initialize with a list of users
+        Initialize with user repository and optional list of users
         
         Args:
-            users: List of User objects (optional)
+            user_repository: Repository for user data access
+            users: Optional list of User objects (for sorting and in-memory operations)
         """
+        self.user_repository = user_repository
         self.users = users or []
         self.today = datetime.now().date()
     
     def set_users(self, users: List[User]) -> None:
         """
-        Set the list of users
+        Set the list of users for in-memory operations
         
         Args:
             users: List of User objects
@@ -32,7 +46,7 @@ class InsuranceService:
     
     def sort_by_date(self, date_field: str) -> List[User]:
         """
-        Sort users by a date field
+        Sort users by a date field (in-memory operation)
         
         Args:
             date_field: Name of the date field to sort by
@@ -51,7 +65,7 @@ class InsuranceService:
     
     def get_due_soon(self, days: int = 5) -> List[User]:
         """
-        Get users with insurance due soon
+        Get users with insurance due soon (delegates to repository)
         
         Args:
             days: Number of days ahead to check
@@ -59,31 +73,17 @@ class InsuranceService:
         Returns:
             List[User]: List of users with insurance due soon
         """
-        due_soon = []
-        
-        for user in self.users:
-            if user.due_day and user.notice:
-                due_date = user.due_day
-                notice_date = user.notice
-                
-                # Check if within n days of notice date
-                notice_window = notice_date + timedelta(days=days)
-                if self.today <= notice_window and self.today >= notice_date:
-                    due_soon.append(user)
-                # Check if past due date
-                elif self.today > due_date:
-                    due_soon.append(user)
-        
+        due_soon = self.user_repository.get_due_soon(days)
         logger.info(f"Found {len(due_soon)} users with insurance due soon")
         return due_soon
     
     def get_overdue(self) -> List[User]:
         """
-        Get users with overdue insurance
+        Get users with overdue insurance (delegates to repository)
         
         Returns:
             List[User]: List of users with overdue insurance
         """
-        overdue = [user for user in self.users if user.due_day and self.today > user.due_day]
+        overdue = self.user_repository.get_overdue()
         logger.info(f"Found {len(overdue)} users with overdue insurance")
         return overdue

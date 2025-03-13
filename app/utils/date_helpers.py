@@ -1,6 +1,12 @@
 """
-Date utility functions
+  - Role: Date manipulation and comparison utilities
+  - Key Functions: Date parsing, formatting, and range calculations
+
+Provides specialized date parsing, formatting, and calculation capabilities
+needed for insurance due date processing. Includes DateRange class for
+working with date periods and determining if dates fall within ranges.
 """
+
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Union
 import pandas as pd

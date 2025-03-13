@@ -1,6 +1,8 @@
 """
-Centralized logging configuration
+    - Role: Logging configuration
+    - Key Functions: Logger setup and formatting
 """
+
 import logging
 from typing import Optional
 

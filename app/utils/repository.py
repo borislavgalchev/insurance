@@ -1,5 +1,9 @@
 """
-Base repository with common functionality
+  - Role: Base repository functionality
+  - Key Functions: Common CRUD operations
+
+  Includes query execution, result mapping, and error handling with
+  consistent patterns across all data access components.
 """
 from typing import List, Type, TypeVar, Generic, Dict, Any, Callable, Optional
 import logging

@@ -1,3 +1,13 @@
+"""
+  - Role: Centralized configuration store
+  - Contents: Database credentials, Twilio API keys, translation mappings,
+  application settings
+  - Importance: High - provides configuration for all components
+
+Includes translation mappings for column names and configurable
+application behavior settings like notification periods.
+"""
+
 import os
 from dotenv import load_dotenv
 import logging
