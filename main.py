@@ -1,6 +1,6 @@
 """
 Orchestrates the workflow of importing user data, identifying due/overdue insurance,
-and sending notifications via SMS. Handles command-line arguments for controlling
+and sending notifications via Viber. Handles command-line arguments for controlling
 notification behavior, test mode, and days-ahead checking.
 """
 
@@ -46,14 +46,14 @@ def main():
             insurance_service = InsuranceService(user_repository, users)
             display_user_info(insurance_service)
             
-            # Check for upcoming insurance and send SMS if requested
+            # Check for upcoming insurance and send messages if requested
             if args.sms:
                 test_mode = not args.prod
                 show_notification_mode(test_mode)
                 
                 notification_service = NotificationService(user_repository, test_mode)
-                sms_count = notification_service.check_upcoming_insurance(args.days)
-                show_sms_count(sms_count)
+                message_count = notification_service.check_upcoming_insurance(args.days)
+                show_sms_count(message_count)  # Reusing existing function but it counts Viber messages now
             
         except DataImportError as e:
             logger.error(f"Error importing data: {e}")

@@ -11,7 +11,7 @@ into User model instances. Handles date parsing and data type conversion.
 
 import pandas as pd
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set, Tuple
 from app.models.user import User
 from app.utils.date_helpers import parse_date
 from app.utils.exceptions import DataImportError
@@ -71,6 +71,9 @@ class ExcelService:
         """
         try:
             users = []
+            # Track duplicates within the Excel file
+            seen_records: Set[Tuple[str, str, str]] = set()
+            duplicate_count = 0
             
             for _, row in self.df.iterrows():
                 # Safe conversion for numeric fields
@@ -84,24 +87,46 @@ class ExcelService:
                 except (ValueError, TypeError):
                     installments = 0
                 
+                # Extract required fields for deduplication
+                full_name = str(row['full_name']) if pd.notna(row['full_name']) else ''
+                due_day = parse_date(row['due_day'])
+                policy_number = str(row['policy_number']) if pd.notna(row['policy_number']) else ''
+                
+                # Skip empty records
+                if not full_name or not due_day:
+                    logger.warning(f"Skipping record with missing name or due date: {full_name}")
+                    continue
+                
+                # Check for duplicates within the current Excel file
+                record_key = (full_name, str(due_day), policy_number)
+                if record_key in seen_records:
+                    logger.info(f"Skipping duplicate record in Excel: {full_name}, {due_day}, {policy_number}")
+                    duplicate_count += 1
+                    continue
+                
+                seen_records.add(record_key)
+                
                 user_data = {
                     'nickname': str(row['nickname']) if pd.notna(row['nickname']) else '',
-                    'full_name': str(row['full_name']) if pd.notna(row['full_name']) else '',
+                    'full_name': full_name,
                     'cell_phone': str(row['cell_phone']) if pd.notna(row['cell_phone']) else '',
                     'car_type': str(row['car_type']) if pd.notna(row['car_type']) else '',
                     'license_plate': str(row['license_plate']) if pd.notna(row['license_plate']) else '',
                     'due_month': parse_date(row['due_month']),
                     'notice': parse_date(row['notice']),
-                    'due_day': parse_date(row['due_day']),
+                    'due_day': due_day,
                     'made_on': parse_date(row['made_on']),
                     'amount': amount,
                     'installments': installments,
-                    'policy_number': str(row['policy_number']) if pd.notna(row['policy_number']) else ''
+                    'policy_number': policy_number
                 }
                 
                 users.append(User.from_dict(user_data))
             
-            logger.info(f"Processed {len(users)} users from Excel file")
+            if duplicate_count > 0:
+                logger.info(f"Found and skipped {duplicate_count} duplicate records in Excel file")
+            
+            logger.info(f"Processed {len(users)} unique users from Excel file")
             return users
         except Exception as e:
             logger.error(f"Failed to process Excel data: {e}")

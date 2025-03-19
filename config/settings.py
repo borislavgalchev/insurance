@@ -1,6 +1,6 @@
 """
   - Role: Centralized configuration store
-  - Contents: Database credentials, Twilio API keys, translation mappings,
+  - Contents: Database credentials, Viber API keys, translation mappings,
   application settings
   - Importance: High - provides configuration for all components
 
@@ -32,11 +32,12 @@ DB_CONFIG = {
     'database': os.getenv('DB_NAME', 'insurance')
 }
 
-# Twilio configuration
-TWILIO_CONFIG = {
-    'account_sid': os.getenv('TWILIO_ACCOUNT_SID'),
-    'auth_token': os.getenv('TWILIO_AUTH_TOKEN'),
-    'phone_number': os.getenv('TWILIO_PHONE_NUMBER')
+# Viber configuration
+VIBER_CONFIG = {
+    'auth_token': os.getenv('VIBER_AUTH_TOKEN'),
+    'name': os.getenv('VIBER_BOT_NAME', 'Insurance Notifications'),
+    'avatar': os.getenv('VIBER_AVATAR_URL', ''),
+    'webhook_url': os.getenv('VIBER_WEBHOOK_URL', '')
 }
 
 # Test phone number for development

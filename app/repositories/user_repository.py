@@ -18,6 +18,7 @@ from app.models.user import User
 from app.services.database import DatabaseService
 from app.utils.repository import BaseRepository
 from app.utils.decorators import log_operation
+from app.utils.exceptions import DatabaseError
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -58,10 +59,45 @@ class UserRepository(BaseRepository[User]):
             made_on DATE,
             amount INT,
             installments INT,
-            policy_number VARCHAR(100)
+            policy_number VARCHAR(100),
+            UNIQUE KEY unique_insurance_policy (full_name, due_day, policy_number),
+            INDEX idx_full_name (full_name),
+            INDEX idx_due_day (due_day),
+            INDEX idx_notice (notice)
         )
         """
         self.db.create_table(query)
+        
+        # This might fail if the table already exists with existing data.
+        # In that case, we need to alter the table and add the constraints.
+        try:
+            # Check if table exists but doesn't have the constraints
+            query = """
+            SELECT COUNT(*) as count FROM information_schema.TABLE_CONSTRAINTS 
+            WHERE CONSTRAINT_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'users' 
+            AND CONSTRAINT_NAME = 'unique_insurance_policy'
+            """
+            
+            result = self.db.fetch_one(query)
+            
+            if result and result.get('count', 0) == 0:
+                # Add the unique constraint if it doesn't exist
+                query = """
+                ALTER TABLE users 
+                ADD CONSTRAINT unique_insurance_policy 
+                UNIQUE (full_name, due_day, policy_number)
+                """
+                self.db.execute_query(query)
+                
+                # Add indexes if they don't exist
+                self.db.execute_query("CREATE INDEX IF NOT EXISTS idx_full_name ON users (full_name)")
+                self.db.execute_query("CREATE INDEX IF NOT EXISTS idx_due_day ON users (due_day)")
+                self.db.execute_query("CREATE INDEX IF NOT EXISTS idx_notice ON users (notice)")
+                
+                logger.info("Added unique constraint and indexes to users table")
+        except Exception as e:
+            logger.warning(f"Could not add unique constraint: {e}. This is expected if constraints already exist.")
     
     @log_operation("Get users by date range")
     def get_users_by_date_range(self, start_date: date, end_date: date) -> List[User]:
@@ -76,7 +112,9 @@ class UserRepository(BaseRepository[User]):
             List[User]: List of users with due dates in the range
         """
         query = """
-        SELECT * FROM users
+        SELECT DISTINCT full_name, due_day, notice, cell_phone, car_type, license_plate,
+                      nickname, due_month, made_on, amount, installments, policy_number, id
+        FROM users
         WHERE due_day BETWEEN %s AND %s
         ORDER BY due_day ASC
         """
@@ -94,7 +132,9 @@ class UserRepository(BaseRepository[User]):
             List[User]: List of users with the given notice date
         """
         query = """
-        SELECT * FROM users
+        SELECT DISTINCT full_name, due_day, notice, cell_phone, car_type, license_plate,
+                      nickname, due_month, made_on, amount, installments, policy_number, id
+        FROM users
         WHERE notice = %s
         ORDER BY due_day ASC
         """
@@ -114,7 +154,9 @@ class UserRepository(BaseRepository[User]):
             List[User]: List of users matching the criteria
         """
         query = """
-        SELECT * FROM users
+        SELECT DISTINCT full_name, due_day, notice, cell_phone, car_type, license_plate,
+                      nickname, due_month, made_on, amount, installments, policy_number, id
+        FROM users
         WHERE due_day BETWEEN %s AND %s OR notice = %s
         ORDER BY due_day ASC
         """
@@ -135,7 +177,9 @@ class UserRepository(BaseRepository[User]):
         end_date = today + timedelta(days=days)
         
         query = """
-        SELECT * FROM users
+        SELECT DISTINCT full_name, due_day, notice, cell_phone, car_type, license_plate,
+                      nickname, due_month, made_on, amount, installments, policy_number, id
+        FROM users
         WHERE (notice IS NOT NULL AND notice BETWEEN %s AND %s)
         OR (due_day IS NOT NULL AND due_day BETWEEN %s AND %s)
         ORDER BY due_day ASC
@@ -153,8 +197,30 @@ class UserRepository(BaseRepository[User]):
         today = date.today()
         
         query = """
-        SELECT * FROM users
+        SELECT DISTINCT full_name, due_day, notice, cell_phone, car_type, license_plate,
+                      nickname, due_month, made_on, amount, installments, policy_number, id
+        FROM users
         WHERE due_day IS NOT NULL AND due_day < %s
         ORDER BY due_day ASC
         """
         return self.get_by_query(query, (today,))
+        
+    @log_operation("Check for duplicate user")
+    def check_duplicate(self, user: User) -> bool:
+        """
+        Check if a user record already exists based on unique constraint fields
+        
+        Args:
+            user: User object to check for duplicates
+            
+        Returns:
+            bool: True if duplicate exists, False otherwise
+        """
+        query = """
+        SELECT COUNT(*) as count FROM users
+        WHERE full_name = %s AND due_day = %s AND policy_number = %s
+        """
+        
+        result = self.db.fetch_one(query, (user.full_name, user.due_day, user.policy_number))
+        
+        return result and result.get('count', 0) > 0

@@ -107,18 +107,39 @@ class BaseRepository(Generic[T]):
             self.logger.error(f"Failed to get records by custom query: {e}")
             raise
     
+    def check_duplicate(self, item: T) -> bool:
+        """
+        Check if a record already exists (to be implemented by subclasses)
+        
+        Args:
+            item: Record to check
+            
+        Returns:
+            bool: True if duplicate exists, False otherwise
+        """
+        return False
+        
     @log_operation("insert record")
-    def insert(self, item: T) -> None:
+    def insert(self, item: T, skip_duplicates: bool = True) -> bool:
         """
         Insert a record into the database
         
         Args:
             item: Record to insert
+            skip_duplicates: Whether to skip duplicate records (default: True)
+            
+        Returns:
+            bool: True if record was inserted, False if skipped as duplicate
             
         Raises:
             DatabaseError: If insertion fails
         """
         try:
+            # Check for duplicates if supported by the repository
+            if skip_duplicates and self.check_duplicate(item):
+                self.logger.info(f"Skipped inserting duplicate record into {self.table_name}")
+                return False
+                
             item_dict = self._model_to_dict(item)
             
             # Remove ID if present (for auto-increment)
@@ -132,6 +153,7 @@ class BaseRepository(Generic[T]):
             query = f"INSERT INTO {self.table_name} ({columns}) VALUES ({placeholders})"
             self.db.execute_query(query, values)
             self.logger.debug(f"Inserted record into {self.table_name}")
+            return True
         except DatabaseError as e:
             self.logger.error(f"Failed to insert record: {e}")
             raise

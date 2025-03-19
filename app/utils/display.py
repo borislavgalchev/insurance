@@ -7,10 +7,36 @@ application flow control.
 """
 
 import logging
+from typing import List
+from app.models.user import User
 from app.utils.decorators import log_operation
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def deduplicate_users(users: List[User]) -> List[User]:
+    """
+    Deduplicate users based on name, due date, and policy number
+    
+    Args:
+        users: List of users to deduplicate
+        
+    Returns:
+        List[User]: Deduplicated list of users
+    """
+    seen = set()
+    unique_users = []
+    
+    for user in users:
+        # Create a unique key based on name, due date, and policy number
+        key = (user.full_name, str(user.due_day), user.policy_number)
+        
+        if key not in seen:
+            seen.add(key)
+            unique_users.append(user)
+            
+    return unique_users
 
 
 @log_operation("Display user information")
@@ -24,21 +50,6 @@ def display_user_info(insurance_service):
     # Get users due soon and overdue
     due_soon = insurance_service.get_due_soon()
     overdue = insurance_service.get_overdue()
-    
-    # Deduplicate users based on name and due date
-    def deduplicate_users(users):
-        seen = set()
-        unique_users = []
-        
-        for user in users:
-            # Create a unique key based on name and due date
-            key = (user.full_name, str(user.due_day))
-            
-            if key not in seen:
-                seen.add(key)
-                unique_users.append(user)
-                
-        return unique_users
     
     # Deduplicate the lists
     unique_due_soon = deduplicate_users(due_soon)
@@ -72,15 +83,15 @@ def show_notification_mode(test_mode):
     mode_text = "TEST MODE" if test_mode else "PRODUCTION MODE"
     
     print("\n" + "=" * 50)
-    print(f"CHECKING UPCOMING INSURANCE AND SENDING SMS NOTIFICATIONS ({mode_text})")
+    print(f"CHECKING UPCOMING INSURANCE AND SENDING VIBER NOTIFICATIONS ({mode_text})")
     print("=" * 50 + "\n")
 
 
 def show_sms_count(count):
     """
-    Display the total SMS count
+    Display the total message count
     
     Args:
-        count: Number of SMS messages sent
+        count: Number of Viber messages sent
     """
-    print(f"\nTotal SMS messages sent: {count}")
+    print(f"\nTotal Viber messages sent: {count}")

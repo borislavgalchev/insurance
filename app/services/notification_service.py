@@ -1,7 +1,7 @@
 """
-  - Role: SMS notification delivery service
+  - Role: Viber notification delivery service
   - Key Functions:
-    - send_sms(): Delivers messages via Twilio
+    - send_message(): Delivers messages via Viber
     - check_upcoming_insurance(): Processes and notifies users
 
 Manages the creation and delivery of payment reminder messages to customers,
@@ -11,15 +11,20 @@ of notification attempts and delivery status.
 """
 
 import logging
+import uuid
 from datetime import date, timedelta
-from typing import Optional, List
-from twilio.rest import Client
-from twilio.base.exceptions import TwilioRestException
+from typing import Optional, List, Dict, Any
+
+from viberbot import Api
+from viberbot.api.bot_configuration import BotConfiguration
+from viberbot.api.messages import TextMessage
+from viberbot.api.viber_requests import ViberFailedRequest
+
 from app.utils.exceptions import NotificationError
 from app.repositories.user_repository import UserRepository
 from app.models.user import User
 from app.utils.date_helpers import format_date
-from config.settings import TWILIO_CONFIG, TEST_PHONE
+from config.settings import VIBER_CONFIG, TEST_PHONE
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 class NotificationService:
     """
-    Service for sending SMS notifications to users
+    Service for sending Viber notifications to users
     """
     def __init__(self, user_repository: UserRepository, test_mode: bool = True):
         """
@@ -35,18 +40,32 @@ class NotificationService:
         
         Args:
             user_repository: Repository for user data access
-            test_mode: If True, send all SMS to the test phone number
+            test_mode: If True, send all messages to the test phone number
         """
         self.user_repository = user_repository
         self.test_mode = test_mode
         self.today = date.today()
         
-        # Initialize Twilio client if auth token is provided
-        if TWILIO_CONFIG.get('auth_token'):
-            self.client = Client(TWILIO_CONFIG['account_sid'], TWILIO_CONFIG['auth_token'])
+        # Initialize Viber client if auth token is provided
+        if VIBER_CONFIG.get('auth_token'):
+            bot_configuration = BotConfiguration(
+                auth_token=VIBER_CONFIG['auth_token'],
+                name=VIBER_CONFIG['name'],
+                avatar=VIBER_CONFIG['avatar']
+            )
+            self.viber = Api(bot_configuration)
+            
+            # Set the webhook URL if provided - this only needs to be done once
+            # but we keep it here for completeness
+            if VIBER_CONFIG.get('webhook_url'):
+                try:
+                    self.viber.set_webhook(VIBER_CONFIG['webhook_url'])
+                    logger.info(f"Viber webhook set to {VIBER_CONFIG['webhook_url']}")
+                except Exception as e:
+                    logger.warning(f"Failed to set Viber webhook: {e}")
         else:
-            self.client = None
-            logger.warning("Twilio client not initialized: auth_token not provided")
+            self.viber = None
+            logger.warning("Viber client not initialized: auth_token not provided")
             
         # Log mode
         logger.info(f"Notification service initialized in {'TEST' if test_mode else 'PRODUCTION'} mode")
@@ -55,7 +74,7 @@ class NotificationService:
     
     def normalize_phone(self, phone: str) -> str:
         """
-        Normalize phone number format for Twilio
+        Normalize phone number format for Viber
         
         Args:
             phone: Phone number to normalize
@@ -79,58 +98,114 @@ class NotificationService:
                 
         return cleaned
     
-    def send_sms(self, to_number: str, message_body: str) -> Optional[str]:
+    def send_message(self, to_number: str, message_text: str) -> Optional[str]:
         """
-        Send an SMS message
+        Send a Viber message
         
         Args:
             to_number: Recipient phone number
-            message_body: Message content
+            message_text: Message content
             
         Returns:
-            Optional[str]: Message SID if sent successfully, None otherwise
+            Optional[str]: Message ID if sent successfully, None otherwise
             
         Raises:
-            NotificationError: If SMS sending fails
+            NotificationError: If message sending fails
         """
-        if not self.client:
-            logger.warning("Twilio client not initialized. SMS not sent.")
+        if not self.viber:
+            logger.warning("Viber client not initialized. Message not sent.")
             if self.test_mode:
-                logger.info(f"TEST MODE: Would send to {to_number}: {message_body}")
-                return "test_message_id"
+                logger.info(f"TEST MODE: Would send to {to_number}: {message_text}")
+                return str(uuid.uuid4())  # Return a mock message ID
             return None
             
         # Normalize phone number
         to_number = self.normalize_phone(to_number)
         
         if not to_number or to_number == '*' or len(to_number) < 10:
-            logger.warning(f"Invalid phone number: {to_number}. SMS not sent.")
+            logger.warning(f"Invalid phone number: {to_number}. Message not sent.")
             return None
         
         try:
-            message = self.client.messages.create(
-                from_=TWILIO_CONFIG['phone_number'],
-                body=message_body,
-                to=to_number
+            # Create a text message
+            message = TextMessage(
+                text=message_text,
+                tracking_data=f"insurance-notification-{date.today().isoformat()}"
             )
-            logger.info(f"SMS sent to {to_number}. Message SID: {message.sid}")
-            return message.sid
-        except TwilioRestException as e:
-            logger.error(f"Twilio error: {e}")
-            raise NotificationError(f"Failed to send SMS: {e}")
+            
+            # Send the message
+            response = self.viber.send_messages(to_number, [message])
+            
+            # Generate a message ID (Viber doesn't return an ID like Twilio)
+            message_id = str(uuid.uuid4())
+            
+            logger.info(f"Viber message sent to {to_number}. Message ID: {message_id}")
+            return message_id
+            
+        except ViberFailedRequest as e:
+            logger.error(f"Viber error: {e}")
+            raise NotificationError(f"Failed to send Viber message: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error sending SMS: {e}")
-            raise NotificationError(f"Failed to send SMS: {e}")
+            logger.error(f"Unexpected error sending Viber message: {e}")
+            raise NotificationError(f"Failed to send Viber message: {e}")
+    
+    def format_viber_message(self, user: User, message_text: str) -> Dict[str, Any]:
+        """
+        Format a message for Viber
+        
+        Args:
+            user: User to send message to
+            message_text: Message content
+            
+        Returns:
+            Dict[str, Any]: Formatted message
+        """
+        # Normalize phone
+        phone = self.normalize_phone(user.cell_phone)
+        if not phone:
+            phone = 'UNKNOWN'
+            
+        return {
+            "receiver": phone,
+            "type": "text",
+            "sender": {
+                "name": VIBER_CONFIG['name'],
+            },
+            "text": message_text
+        }
+    
+    def deduplicate_users(self, users: List[User]) -> List[User]:
+        """
+        Deduplicate users based on name, due date, and policy number
+        
+        Args:
+            users: List of users to deduplicate
+            
+        Returns:
+            List[User]: Deduplicated list of users
+        """
+        seen = set()
+        unique_users = []
+        
+        for user in users:
+            # Create a unique key based on name, due date, and policy number
+            key = (user.full_name, str(user.due_day), user.policy_number)
+            
+            if key not in seen:
+                seen.add(key)
+                unique_users.append(user)
+                
+        return unique_users
     
     def check_upcoming_insurance(self, days_ahead: int = 5) -> int:
         """
-        Check for upcoming insurance due dates and send SMS notifications
+        Check for upcoming insurance due dates and send Viber notifications
         
         Args:
             days_ahead: Number of days ahead to check for due dates
             
         Returns:
-            int: Number of SMS messages sent
+            int: Number of messages sent
             
         Raises:
             NotificationError: If checking fails
@@ -145,25 +220,10 @@ class NotificationService:
                 self.today, future_date, self.today
             )
             
-            # Deduplicate users based on name and due date
-            def deduplicate_users(users):
-                seen = set()
-                unique_users = []
-                
-                for user in users:
-                    # Create a unique key based on name and due date
-                    key = (user.full_name, str(user.due_day))
-                    
-                    if key not in seen:
-                        seen.add(key)
-                        unique_users.append(user)
-                        
-                return unique_users
-            
             # Deduplicate the user list
-            unique_users = deduplicate_users(upcoming_users)
+            unique_users = self.deduplicate_users(upcoming_users)
             
-            sms_sent_count = 0
+            messages_sent_count = 0
             
             if unique_users:
                 logger.info(f"Found {len(unique_users)} unique users with upcoming insurance dates (from {len(upcoming_users)} total records)")
@@ -171,7 +231,7 @@ class NotificationService:
                 for user in unique_users:
                     days_until_due = (user.due_day - self.today).days if user.due_day else 0
                     
-                    # Determine if we should send an SMS based on due date or notice date
+                    # Determine if we should send a message based on due date or notice date
                     message = None
                     
                     if user.notice == self.today:
@@ -183,7 +243,7 @@ class NotificationService:
                                   f"({user.license_plate}) is due TODAY. Please make your payment as soon as possible.")
                     
                     if message:
-                        # In test mode, send all SMS to the test phone number
+                        # In test mode, send all messages to the test phone number
                         # In production mode, use the user's actual phone number
                         phone_number = TEST_PHONE if self.test_mode else user.cell_phone
                         
@@ -194,17 +254,17 @@ class NotificationService:
                         logger.info(f"Phone: {phone_number if self.test_mode else user.cell_phone}")
                         
                         try:
-                            message_sid = self.send_sms(phone_number, message)
-                            if message_sid:
-                                logger.info(f"SMS sent successfully. Message SID: {message_sid}")
-                                sms_sent_count += 1
+                            message_id = self.send_message(phone_number, message)
+                            if message_id:
+                                logger.info(f"Viber message sent successfully. Message ID: {message_id}")
+                                messages_sent_count += 1
                         except NotificationError:
-                            # Already logged in send_sms, just continue with the next user
+                            # Already logged in send_message, just continue with the next user
                             continue
             else:
                 logger.info("No users with upcoming insurance dates found.")
             
-            return sms_sent_count
+            return messages_sent_count
         
         except Exception as e:
             logger.error(f"Error checking upcoming insurance: {e}")
